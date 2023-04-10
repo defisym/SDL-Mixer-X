@@ -87,6 +87,10 @@ static struct _Mix_Channel {
     Uint32 fade_length;
     Uint32 ticks_fade;
     effect_info *effects;
+
+    // De Ext
+    void (SDLCALL* channel_done_callback_arg)(int chan, void* userdata);
+    void* callback_arg;
 } *mix_channel = NULL;
 
 static effect_info *posteffects = NULL;
@@ -284,6 +288,10 @@ static void _Mix_channel_done_playing(int channel)
 {
     if (channel_done_callback) {
         channel_done_callback(channel);
+    }
+
+    if (mix_channel[channel].channel_done_callback_arg) {
+        mix_channel[channel].channel_done_callback_arg(channel, mix_channel[channel].callback_arg);
     }
 
     /*
@@ -517,6 +525,9 @@ int MIXCALLCC Mix_InitMixer(const SDL_AudioSpec *spec, SDL_bool skip_init_check)
         mix_channel[i].expire = 0;
         mix_channel[i].effects = NULL;
         mix_channel[i].paused = 0;
+
+        mix_channel[i].channel_done_callback_arg = NULL;
+        mix_channel[i].callback_arg = NULL;
     }
     Mix_VolumeMusicStream(NULL, SDL_MIX_MAXVOLUME);
 
@@ -622,6 +633,9 @@ int MIXCALLCC Mix_AllocateChannels(int numchans)
             mix_channel[i].expire = 0;
             mix_channel[i].effects = NULL;
             mix_channel[i].paused = 0;
+
+            mix_channel[i].channel_done_callback_arg = NULL;
+            mix_channel[i].callback_arg = NULL;
         }
     }
     num_channels = numchans;
@@ -1851,6 +1865,34 @@ int MIXCALLCC Mix_MasterVolume(int volume)
 int MIXCALLCC Mix_AudioOpened(void) {
     return audio_opened;
 }
+
+void MIXCALLCC Mix_RewindChannel(int channel) {
+    Mix_Chunk* chunk = mix_channel[channel].chunk;
+    Uint32 sdl_ticks = SDL_GetTicks();
+    int ticks = -1;
+
+    mix_channel[channel].samples = chunk->abuf;
+    mix_channel[channel].playing = (int)chunk->alen;
+    //mix_channel[channel].looping = loops;
+    mix_channel[channel].chunk = chunk;
+    mix_channel[channel].paused = 0;
+    mix_channel[channel].fading = MIX_NO_FADING;
+    mix_channel[channel].start_time = sdl_ticks;
+    mix_channel[channel].expire = (ticks > 0) ? (sdl_ticks + (Uint32)ticks) : 0;
+}
+
+void MIXCALLCC Mix_ChannelFinishedArg(int channel, void* udata, void (SDLCALL* channel_finished)(int chan, void* userdata)) {
+    Mix_LockAudio();
+    if ((channel < 0) || (channel >= num_channels)) {
+        Mix_SetError("Invalid channel number");
+        return;
+    }
+
+    mix_channel[channel].channel_done_callback_arg = channel_finished;
+    mix_channel[channel].callback_arg = udata;
+    Mix_UnlockAudio();
+}
+
 /*  DE EXT, END */
 
 /* vi: set ts=4 sw=4 expandtab: */
