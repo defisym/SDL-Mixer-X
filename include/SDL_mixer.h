@@ -3867,6 +3867,7 @@ extern DECLSPEC int  MIXCALL Mix_SetMidiDevice(int player);/*MixerX*/
 
 /*  DE EXT */
 extern DECLSPEC int MIXCALL Mix_AudioOpened(void);
+extern DECLSPEC void MIXCALL Mix_RewindChannel(int channel);
 /*  DE EXT, END */
 
 /**

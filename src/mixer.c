@@ -1851,6 +1851,21 @@ int MIXCALLCC Mix_MasterVolume(int volume)
 int MIXCALLCC Mix_AudioOpened(void) {
     return audio_opened;
 }
+
+void MIXCALLCC Mix_RewindChannel(int channel) {
+    Mix_Chunk* chunk = mix_channel[channel].chunk;
+    Uint32 sdl_ticks = SDL_GetTicks();
+    int ticks = -1;
+
+    mix_channel[channel].samples = chunk->abuf;
+    mix_channel[channel].playing = (int)chunk->alen;
+    //mix_channel[channel].looping = loops;
+    mix_channel[channel].chunk = chunk;
+    mix_channel[channel].paused = 0;
+    mix_channel[channel].fading = MIX_NO_FADING;
+    mix_channel[channel].start_time = sdl_ticks;
+    mix_channel[channel].expire = (ticks > 0) ? (sdl_ticks + (Uint32)ticks) : 0;
+}
 /*  DE EXT, END */
 
 /* vi: set ts=4 sw=4 expandtab: */
