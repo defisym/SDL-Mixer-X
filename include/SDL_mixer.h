@@ -3865,6 +3865,9 @@ extern DECLSPEC int  MIXCALL Mix_SetMidiDevice(int player);/*MixerX*/
 
 /*  DEPRECATED FUNCTIONS, END */
 
+/*  DE EXT */
+extern DECLSPEC int MIXCALL Mix_AudioOpened(void);
+/*  DE EXT, END */
 
 /**
  * Report SDL_mixer errors

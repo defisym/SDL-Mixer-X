@@ -1847,4 +1847,10 @@ int MIXCALLCC Mix_MasterVolume(int volume)
 
 /* end of mixer.c ... */
 
+/*  DE EXT */
+int MIXCALLCC Mix_AudioOpened(void) {
+    return audio_opened;
+}
+/*  DE EXT, END */
+
 /* vi: set ts=4 sw=4 expandtab: */
