@@ -1,10 +1,10 @@
-Set SDLPath=F:\DEV\SDL
+Set SDLPath=D:\DEV\SDL
 Set FusionPath=C:\Steam\steamapps\common\Clickteam Fusion 2.5
-Set ExtPath=F:\DEV\OpenFusionExamples\Extensions\SDL_Mixer\MixerXLib
+Set ExtPath=D:\DEV\OpenFusionExamples\Extensions\SDL_Mixer\MixerXLib
 
-Set IncludePath=F:\DEV\SDL-Mixer-X\include
-Set LibPath=F:\DEV\SDL-Mixer-X\build\build32\lib
-Set BinPath=F:\DEV\SDL-Mixer-X\build\build32\bin
+Set IncludePath=D:\DEV\SDL-Mixer-X\include
+Set LibPath=D:\DEV\SDL-Mixer-X\build\build32\lib
+Set BinPath=D:\DEV\SDL-Mixer-X\build\build32\bin
 
 echo y | xcopy "%IncludePath%\SDL_mixer.h" "%SDLPath%\include\" /s /e
 echo y | xcopy "%IncludePath%\SDL_mixer_ext\SDL_mixer_ext.h" "%SDLPath%\include\SDL_mixer_ext\" /s /e
