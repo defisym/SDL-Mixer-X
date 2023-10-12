@@ -1853,6 +1853,8 @@ int MIXCALLCC Mix_AudioOpened(void) {
 }
 
 void MIXCALLCC Mix_RewindChannel(int channel) {
+    Mix_LockAudio();
+
     Mix_Chunk* chunk = mix_channel[channel].chunk;
     Uint32 sdl_ticks = SDL_GetTicks();
     int ticks = -1;
@@ -1865,6 +1867,8 @@ void MIXCALLCC Mix_RewindChannel(int channel) {
     mix_channel[channel].fading = MIX_NO_FADING;
     mix_channel[channel].start_time = sdl_ticks;
     mix_channel[channel].expire = (ticks > 0) ? (sdl_ticks + (Uint32)ticks) : 0;
+
+	Mix_UnlockAudio();
 }
 /*  DE EXT, END */
 
