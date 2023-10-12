@@ -263,11 +263,7 @@ extern DECLSPEC void MIXCALL Mix_Quit(void);
 
 /* Good default values for a PC soundcard */
 #define MIX_DEFAULT_FREQUENCY   44100
-#if SDL_BYTEORDER == SDL_LIL_ENDIAN
-#define MIX_DEFAULT_FORMAT  AUDIO_S16LSB
-#else
-#define MIX_DEFAULT_FORMAT  AUDIO_S16MSB
-#endif
+#define MIX_DEFAULT_FORMAT  AUDIO_S16SYS
 #define MIX_DEFAULT_CHANNELS    2
 #define MIX_MAX_VOLUME          SDL_MIX_MAXVOLUME /* Volume of a chunk */
 
@@ -310,6 +306,7 @@ typedef enum {
     /* MixerX specific codecs starts with 100 */
     , /*Comma was placed here to simplfy the comparison to mainstream part of this enumeration */
     MUS_FFMPEG = 100,
+    MUS_PXTONE,
     /* Special cases to play formats IMF, MUS, or XMI are can't be played without specific MIDI libraries */
     MUS_ADLMIDI = 200,
     MUS_OPNMIDI,
@@ -378,14 +375,18 @@ typedef enum {
 typedef enum {
     OPNMIDI_OPN2_EMU_DEFAULT = -1,
     OPNMIDI_OPN2_EMU_MAME_OPN2 = 0,
-    OPNMIDI_OPN2_EMU_NUKED,
+    OPNMIDI_OPN2_EMU_NUKED_YM3438,
     OPNMIDI_OPN2_EMU_GENS,
-    OPNMIDI_OPN2_EMU_GX, /* Caution: THIS emulator is inavailable by default */
+    OPNMIDI_OPN2_EMU_YMFM_OPN2,
     OPNMIDI_OPN2_EMU_NP2,
     OPNMIDI_OPN2_EMU_MAME_OPNA,
-    OPNMIDI_OPN2_EMU_PMDWIN,
+    OPNMIDI_OPN2_EMU_YMFM_OPNA,
+    OPNMIDI_OPN2_EMU_NUKED_YM2612,
     /* Deprecated */
-    OPNMIDI_OPN2_EMU_MIME = 0 /*!!!TYPO!!!*/
+    OPNMIDI_OPN2_EMU_MIME = 0, /*!!!TYPO!!!*/
+    OPNMIDI_OPN2_EMU_GX = OPNMIDI_OPN2_EMU_YMFM_OPN2, /*Replaced*/
+    OPNMIDI_OPN2_EMU_PMDWIN = OPNMIDI_OPN2_EMU_YMFM_OPNA, /*Replaced*/
+    OPNMIDI_OPN2_EMU_NUKED = OPNMIDI_OPN2_EMU_NUKED_YM3438 /* Alias */
 } Mix_OPNMIDI_Emulator;
 
 /* Channel allocation mode in the ADLMIDI and OPNMIDI */
@@ -393,7 +394,7 @@ typedef enum {
     MIX_CHIP_CHANALLOC_AUTO = -1,
     MIX_CHIP_CHANALLOC_OffDelay = 0,
     MIX_CHIP_CHANALLOC_SameInst,
-    MIX_CHIP_CHANALLOC_AnyFree,
+    MIX_CHIP_CHANALLOC_AnyFree
 } Mix_ChipChanAllocMode;
 
 /**
@@ -3900,6 +3901,7 @@ extern DECLSPEC void MIXCALL Mix_RewindChannel(int channel);
 #ifdef __cplusplus
 }
 #endif
+
 #include "close_code.h"
 
 #endif /* SDL_MIXER_H_ */

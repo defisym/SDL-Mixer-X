@@ -1155,6 +1155,7 @@ int read_id3v2_from_mem(Mix_MusicMetaTags *out_tags, Uint8 *data, size_t length)
         fil.src = src;
         fil.start = 0;
         fil.length = (Sint64)length;
+        fil.pos = 0;
 
         if (!is_id3v2(data, length)) {
             SDL_RWclose(src);
@@ -1172,5 +1173,30 @@ int read_id3v2_from_mem(Mix_MusicMetaTags *out_tags, Uint8 *data, size_t length)
         return is_valid ? 0 : -1;
     }
     return -1;
+}
+
+long get_id3v2_length(SDL_RWops *src)
+{
+    Uint8 buf[TAGS_INPUT_BUFFER_SIZE];
+    size_t readsize;
+    Sint64 start;
+
+    if(!src) {
+        return 0;
+    }
+
+    start = SDL_RWtell(src);
+    readsize = SDL_RWread(src, buf, 1, TAGS_INPUT_BUFFER_SIZE);
+    SDL_RWseek(src, start, RW_SEEK_SET);
+
+    if (!readsize) {
+        return 0;
+    }
+
+    if (!is_id3v2(buf, readsize)) {
+        return 0;
+    }
+
+    return get_id3v2_len(buf, (long)readsize);
 }
 #endif /* ENABLE_ID3V2_TAG */

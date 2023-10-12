@@ -32,6 +32,19 @@
 
 #include "qfile_dialogs_default_options.hpp"
 
+#if QT_VERSION < QT_VERSION_CHECK(5, 7, 0)
+#   define qAsConst(x)  x
+#endif
+
+static QString timePosToString(double pos, const QString &format = "hh:mm:ss")
+{
+#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
+    return QDateTime::fromSecsSinceEpoch((uint)std::floor(pos), Qt::UTC).toString(format);
+#else
+    return QDateTime::fromTime_t((uint)std::floor(pos)).toUTC().toString(format);
+#endif
+}
+
 
 MusPlayer_Qt::MusPlayer_Qt(QWidget *parent) : QMainWindow(parent),
     MusPlayerBase(),
@@ -168,7 +181,9 @@ void MusPlayer_Qt::dropEvent(QDropEvent *e)
     if(ui->recordWav->isChecked())
         return;
 
-    for(const QUrl &url : e->mimeData()->urls())
+    auto l = e->mimeData()->urls();
+
+    for(const QUrl &url : qAsConst(l))
     {
         const QString &fileName = url.toLocalFile();
         m_currentMusic = fileName;
@@ -409,6 +424,8 @@ void MusPlayer_Qt::on_play_clicked()
     QString midiRawArgs = m_setupMidi->getRawMidiArgs();
     if(ui->gme_setup->isEnabled())
         musicPath += "|" + ui->trackID->text() + ";" + midiRawArgs;
+    else if(PGE_MusicPlayer::type == MUS_PXTONE || PGE_MusicPlayer::type == MUS_OGG)
+        musicPath += "|" + midiRawArgs;
     else if((PGE_MusicPlayer::type == MUS_MID || PGE_MusicPlayer::type == MUS_ADLMIDI))
     {
         if(midiRawArgs.isEmpty())
@@ -531,6 +548,11 @@ void MusPlayer_Qt::refreshMetaData()
     double loopStart = Mix_GetMusicLoopStartTime(PGE_MusicPlayer::s_playMus);
     double loopEnd = Mix_GetMusicLoopEndTime(PGE_MusicPlayer::s_playMus);
 
+    qDebug() << "Duration:" << total
+             << "Position:" << curPos
+             << "loopStart:" << loopStart
+             << "loopEnd:" << loopEnd;
+
     m_seekBar->clearLoopPoints();
     m_seekBar->setEnabled(false);
 
@@ -540,7 +562,7 @@ void MusPlayer_Qt::refreshMetaData()
         m_seekBar->setLength(total);
         m_seekBar->setPosition(0.0);
         m_seekBar->setLoopPoints(loopStart, loopEnd);
-        ui->playingTimeLenghtLabel->setText(QDateTime::fromTime_t((uint)std::floor(total)).toUTC().toString("/ hh:mm:ss"));
+        ui->playingTimeLenghtLabel->setText(timePosToString(total, "/ hh:mm:ss"));
         m_positionWatcher.start(128);
     }
     // ui->musicPosition->setVisible(ui->musicPosition->isEnabled());
@@ -761,7 +783,7 @@ void MusPlayer_Qt::updatePositionSlider()
     else
     {
         m_seekBar->setPosition(pos);
-        ui->playingTimeLabel->setText(QDateTime::fromTime_t((uint)std::floor(pos)).toUTC().toString("hh:mm:ss"));
+        ui->playingTimeLabel->setText(timePosToString(pos));
     }
     m_positionWatcherLock = false;
 }
@@ -775,7 +797,7 @@ void MusPlayer_Qt::musicPosition_seeked(double value)
     if(Mix_PlayingMusicStream(PGE_MusicPlayer::s_playMus))
     {
         Mix_SetMusicPositionStream(PGE_MusicPlayer::s_playMus, value);
-        ui->playingTimeLabel->setText(QDateTime::fromTime_t((uint)value).toUTC().toString("hh:mm:ss"));
+        ui->playingTimeLabel->setText(timePosToString(value));
     }
 }
 

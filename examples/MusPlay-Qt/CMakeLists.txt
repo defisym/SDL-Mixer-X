@@ -81,6 +81,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${Qt5Widgets_EXECUTABLE_COMPILE_FLAGS} $
 set(SDLMixer_MusPlay_SRC)
 include(sources.cmake)
 
+qt5_add_resources(RESOURCE_ADDED ${SDLMixer_MusPlay_RESOURCE})
+qt5_wrap_ui(UIS_HDRS ${SDLMixer_MusPlay_UI})
+
 list(APPEND SDLMixer_MusPlay_SRC
     ${UIS_HDRS}
     ${RESOURCE_ADDED}
@@ -107,6 +110,11 @@ elseif(APPLE)
     )
 else()
     target_link_libraries(sdlmixer_musplay ${PGE_MUSPLAY_LINK_LIBS})
+endif()
+
+if(ENABLE_ADDRESS_SANITIZER)
+    target_compile_options(sdlmixer_musplay PRIVATE -fsanitize=address)
+    target_link_options(sdlmixer_musplay PRIVATE -fsanitize=address)
 endif()
 
 qt5_use_modules(sdlmixer_musplay Widgets Network)

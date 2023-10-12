@@ -318,6 +318,12 @@ int main(int argc, char *argv[])
         case MUS_ADLMIDI:
             typ = "IMF/MUS/XMI";
             break;
+        case MUS_FFMPEG:
+            typ = "FFMPEG";
+            break;
+        case MUS_PXTONE:
+            typ = "PXTONE";
+            break;
         case MUS_NONE:
         default:
             typ = "NONE";

@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.8.12)
+cmake_minimum_required (VERSION 2.8.12...3.5)
 project(SDLMixerX C CXX)
 
 set(SDLMixerX_VERSION_MAJOR 2)
@@ -6,6 +6,8 @@ set(SDLMixerX_VERSION_MINOR 7)
 set(SDLMixerX_VERSION_PATCH 0)
 set(SDLMixerX_VERSION_TWEAK 0)
 set(SDLMixerX_VERSION      "${SDLMixerX_VERSION_MAJOR}.${SDLMixerX_VERSION_MINOR}.${SDLMixerX_VERSION_PATCH}.${SDLMixerX_VERSION_TWEAK}")
+
+set(SDL_REQUIRED_VERSION 2.0.7)
 
 # =================Library ABI version=======================
 
@@ -110,8 +112,18 @@ if(NOT EMSCRIPTEN
    AND NOT NINTENDO_3DS
    AND NOT NINTENDO_WII
    AND NOT NINTENDO_WIIU)
-    option(SDL_MIXER_X_STATIC   "Build static library of SDL Mixer X" ON)
-    option(SDL_MIXER_X_SHARED   "Build shared library of SDL Mixer X" ON)
+
+    set(SDL_MIXER_X_STATIC_ENABLED_BY_DEFAULT ON)
+    set(SDL_MIXER_X_SHARED_ENABLED_BY_DEFAULT OFF)
+
+    # When defined, respect CMake's BUILD_SHARED_LIBS setting
+    if (BUILD_SHARED_LIBS)
+        set(SDL_MIXER_X_SHARED_ENABLED_BY_DEFAULT ON)
+        set(SDL_MIXER_X_STATIC_ENABLED_BY_DEFAULT OFF)
+    endif()
+
+    option(SDL_MIXER_X_STATIC   "Build static library of SDL Mixer X" ${SDL_MIXER_X_STATIC_ENABLED_BY_DEFAULT})
+    option(SDL_MIXER_X_SHARED   "Build shared library of SDL Mixer X" ${SDL_MIXER_X_SHARED_ENABLED_BY_DEFAULT})
 else()
     set(SDL_MIXER_X_STATIC ON)
     set(SDL_MIXER_X_SHARED OFF)
@@ -124,6 +136,8 @@ set(AUDIO_CODECS_INSTALL_PATH "" CACHE PATH "Path to installed AudioCodecs prefi
 
 option(MIXERX_ENABLE_LGPL   "Enable components with LGPL license" OFF)
 option(MIXERX_ENABLE_GPL    "Enable using of components with GPL and LGPL licenses" OFF)
+
+option(ENABLE_ADDRESS_SANITIZER "Enable the Address Sanitizer GCC feature" OFF)
 
 set(MIXERX_ZLIB TRUE)
 if(MIXERX_ENABLE_LGPL OR MIXERX_ENABLE_GPL)
@@ -139,7 +153,7 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR CMAKE_C_COMPILER_ID ST
     set(FLAG_C99 "-std=c99")
     # Turn on warnings and legacy C/C++ standards to support more compilers
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wno-long-long -Wno-missing-field-initializers")
-    if(NINTENDO_3DS)
+    if(NINTENDO_3DS OR NINTENDO_WII OR NINTENDO_WIIU OR NINTENDO_SWITCH)
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu90")
     else()
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c89")
@@ -160,9 +174,14 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR CMAKE_C_COMPILER_ID ST
         set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-undefined,error" )
     endif()
 
+# Supress the std::vector::insert() GCC change warning
     if(VITA)
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DVITA -DVITA=1 -fcompare-debug-second")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DVITA -DVITA=1 -fcompare-debug-second")
+    endif()
+    if(NINTENDO_3DS OR NINTENDO_WII OR NINTENDO_WIIU OR NINTENDO_SWITCH)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fcompare-debug-second")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcompare-debug-second")
     endif()
 endif()
 
@@ -287,11 +306,6 @@ include(music_wavpack)
 include(music_mpg123)
 include(music_drmp3)
 
-if(USE_MP3_MPG123 OR USE_WAV)
-    list(APPEND SDLMixerX_SOURCES
-        ${SDLMixerX_SOURCE_DIR}/src/codecs/mp3utils.c)
-endif()
-
 # Differences between ModPlug and libXMP:
 # - ModPlug-exclusive formats: AMS, DMF, DSM, MT2
 # - XMP-exclusive formats: ABK, DIGI, DTM, EMOD, FLX, FNK, GDM, IMF, J2B, LIQ,
@@ -302,6 +316,7 @@ include(music_modplug)
 include(music_xmp)
 include(music_gme)
 include(music_ffmpeg)
+include(music_pxtone)
 
 include(music_cmd)
 
@@ -325,7 +340,7 @@ if(USE_MIDI)
        NOT USE_MIDI_TIMIDITY AND
        NOT USE_MIDI_FLUIDSYNTH AND
        NOT USE_MIDI_NATIVE)
-        message_error("To have MIDI support you must enable at least one MIDI sequencer library")
+        message(FATAL_ERROR "To have MIDI support you must enable at least one MIDI sequencer library")
     endif()
 else()
     message("== !!! MIDI SUPORT HAS BEEN DISABLED !!! ==")
@@ -405,11 +420,10 @@ list(APPEND SDLMixerX_SOURCES
     ${SDLMixerX_SOURCE_DIR}/src/music.c ${SDLMixerX_SOURCE_DIR}/src/music.h
     ${SDLMixerX_SOURCE_DIR}/src/mixer_x_deprecated.c
     ${SDLMixerX_SOURCE_DIR}/src/utils.c ${SDLMixerX_SOURCE_DIR}/src/utils.h
+    ${SDLMixerX_SOURCE_DIR}/src/codecs/mp3utils.c
 )
 
 #file(GLOB SDLMixerX_SOURCES ${SDLMixerX_SOURCES})
-
-set(SDLMixerX_INSTALLS)
 
 if(SDL_MIXER_X_STATIC AND NOT BUILD_AS_VB6_BINDING)
     add_library(SDL2_mixer_ext_Static STATIC ${SDLMixerX_SOURCES})
@@ -428,7 +442,8 @@ if(SDL_MIXER_X_STATIC AND NOT BUILD_AS_VB6_BINDING)
         ${SDL_MIXER_INCLUDE_PATHS}
     )
     target_include_directories(SDL2_mixer_ext_Static PUBLIC
-        ${SDLMixerX_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${SDLMixerX_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/SDL2>
     )
     if(BUILD_AUDIO_CODECS_NEEDED)
         add_dependencies(SDL2_mixer_ext_Static AudioCodecs)
@@ -441,14 +456,16 @@ if(SDL_MIXER_X_STATIC AND NOT BUILD_AS_VB6_BINDING)
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<$<CONFIG:Debug>:>"
         )
     endif()
+    if(ENABLE_ADDRESS_SANITIZER)
+        target_compile_options(SDL2_mixer_ext_Static PRIVATE -fsanitize=address)
+    endif()
     if(DOWNLOAD_AUDIO_CODECS_DEPENDENCY)
         add_custom_command(
             TARGET SDL2_mixer_ext_Static POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy
-                    ${SDLMixerX_SOURCE_DIR}/include/SDL_mixer.h
-                    ${AUDIO_CODECS_INSTALL_DIR}/include/SDL2/SDL_mixer_ext.h)
+                    "${SDLMixerX_SOURCE_DIR}/include/SDL_mixer.h"
+                    "${AUDIO_CODECS_INSTALL_DIR}/include/SDL2/SDL_mixer_ext.h")
     endif()
-    list(APPEND SDLMixerX_INSTALLS SDL2_mixer_ext_Static)
 endif()
 
 if(WIN32)
@@ -471,7 +488,8 @@ if(SDL_MIXER_X_SHARED AND NOT BUILD_AS_VB6_BINDING)
         ${SDL_MIXER_INCLUDE_PATHS}
     )
     target_include_directories(SDL2_mixer_ext PUBLIC
-        ${SDLMixerX_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${SDLMixerX_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/SDL2>
     )
     if(BUILD_AUDIO_CODECS_NEEDED)
         add_dependencies(SDL2_mixer_ext AudioCodecs)
@@ -484,14 +502,17 @@ if(SDL_MIXER_X_SHARED AND NOT BUILD_AS_VB6_BINDING)
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<$<CONFIG:Debug>:>"
         )
     endif()
+    if(ENABLE_ADDRESS_SANITIZER)
+        target_compile_options(SDL2_mixer_ext PRIVATE -fsanitize=address)
+        target_link_options(SDL2_mixer_ext PRIVATE -fsanitize=address)
+    endif()
     if(DOWNLOAD_AUDIO_CODECS_DEPENDENCY)
         add_custom_command(
             TARGET SDL2_mixer_ext POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy
-                    ${SDLMixerX_SOURCE_DIR}/include/SDL_mixer.h
-                    ${AUDIO_CODECS_INSTALL_DIR}/include/SDL2/SDL_mixer_ext.h)
+                    "${SDLMixerX_SOURCE_DIR}/include/SDL_mixer.h"
+                    "${AUDIO_CODECS_INSTALL_DIR}/include/SDL2/SDL_mixer_ext.h")
     endif()
-    list(APPEND SDLMixerX_INSTALLS SDL2_mixer_ext)
 endif()
 
 if(BUILD_AS_VB6_BINDING)
@@ -526,9 +547,8 @@ if(BUILD_AS_VB6_BINDING)
     add_custom_command(
         TARGET SDL2_mixer_ext_VB6 POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
-                ${CMAKE_SOURCE_DIR}/VB6_Wrapper/modSDL2_mixer_ext_vb6.bas
-                ${CMAKE_BINARY_DIR}/sdl-mixer-vb6)
-    list(APPEND SDLMixerX_INSTALLS SDL2_mixer_ext_VB6)
+                "${CMAKE_SOURCE_DIR}/VB6_Wrapper/modSDL2_mixer_ext_vb6.bas"
+                "${CMAKE_BINARY_DIR}/sdl-mixer-vb6")
 endif()
 
 option(BUILD_EXAMPLES "Build examples" OFF)
@@ -536,13 +556,42 @@ if(BUILD_EXAMPLES AND NOT BUILD_AS_VB6_BINDING)
     add_subdirectory(examples)
 endif()
 
-install(TARGETS ${SDLMixerX_INSTALLS}
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-    INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-    FRAMEWORK DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-)
+if(SDL_MIXER_X_STATIC AND NOT BUILD_AS_VB6_BINDING)
+    install(TARGETS SDL2_mixer_ext_Static
+            EXPORT SDL2MixerExtStaticTargets
+            RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+            LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+
+    install(EXPORT SDL2MixerExtStaticTargets
+            FILE SDL2_mixer_ext-static-targets.cmake
+            NAMESPACE SDL2_mixer_ext::
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/SDL2_mixer_ext")
+endif()
+
+if(SDL_MIXER_X_SHARED AND NOT BUILD_AS_VB6_BINDING)
+    install(TARGETS SDL2_mixer_ext
+            EXPORT SDL2MixerExtSharedTargets
+            RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+            LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+
+    install(EXPORT SDL2MixerExtSharedTargets
+            FILE SDL2_mixer_ext-shared-targets.cmake
+            NAMESPACE SDL2_mixer_ext::
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/SDL2_mixer_ext")
+endif()
+
+
+if(BUILD_AS_VB6_BINDING)
+    install(TARGETS SDL2_mixer_ext_VB6
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+        INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+        FRAMEWORK DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    )
+endif()
 
 if(DOWNLOAD_AUDIO_CODECS_DEPENDENCY)
     if(EXISTS ${AUDIO_CODECS_INSTALL_DIR}/bin)
@@ -561,7 +610,17 @@ install(FILES
     RENAME SDL_mixer_ext.h
 )
 
+include(CMakePackageConfigHelpers)
+configure_package_config_file(SDL2_mixer_extConfig.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/SDL2_mixer_extConfig.cmake"
+    PATH_VARS CMAKE_INSTALL_PREFIX CMAKE_INSTALL_FULL_BINDIR CMAKE_INSTALL_FULL_INCLUDEDIR CMAKE_INSTALL_FULL_LIBDIR
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/SDL2_mixer_ext"
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/SDL2_mixer_extConfig.cmake
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/SDL2_mixer_ext"
+)
+
 if(NOT ANDROID)
+    set(SDL_VERSION ${SDL_REQUIRED_VERSION})
     set(prefix ${CMAKE_INSTALL_PREFIX})
     set(exec_prefix "\${prefix}")
     set(libdir "\${exec_prefix}/lib${LIB_SUFFIX}")
@@ -624,6 +683,7 @@ print_sumary("ModPlug" USE_MODPLUG ModPlug_FOUND ModPlug_LIBRARIES MIXERX_ZLIB "
 print_sumary("libXMP" USE_XMP XMP_FOUND XMP_LIBRARIES MIXERX_LGPL "LGPLv2.1")
 print_sumary("GME" USE_GME GME_FOUND GME_LIBRARIES MIXERX_LGPL "LGPLv2.1")
 print_sumary("FFMPEG" USE_FFMPEG FFMPEG_FOUND FFMPEG_LINK_LIBRARIES MIXERX_LGPL "LGPLv2.1")
+print_sumary("PXTONE" USE_PXTONE TRUE STATS_BUILTIN_LIB MIXERX_ZLIB "PXTONE")
 print_sumary("libADLMIDI" USE_MIDI_ADLMIDI ADLMIDI_FOUND ADLMIDI_LIBRARIES MIXERX_GPL "GPLv3")
 print_sumary("libOPNMIDI" USE_MIDI_OPNMIDI OPNMIDI_FOUND OPNMIDI_LIBRARIES MIXERX_GPL "GPLv3")
 print_sumary("libEDMIDI" USE_MIDI_EDMIDI EDMIDI_FOUND EDMIDI_LIBRARIES MIXERX_ZLIB "-")

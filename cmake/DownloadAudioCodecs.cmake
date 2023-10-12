@@ -20,6 +20,12 @@ set(AUDIO_CODECS_REPOSITORY_PATH ${CMAKE_BINARY_DIR}/external/AudioCodecs)
 #set(AUDIO_CODECS_REPO_PATH "" CACHE PATH "Path to the AudioCodecs dependencies pack")
 
 set(AUDIO_CODECS_SDL2_GIT_BRANCH "" CACHE STRING "GIT commit hash for SDL2 repository")
+set(AUDIO_CODECS_REPO_URL "https://github.com/WohlSoft/AudioCodecs.git" CACHE STRING "The GIT repository path to AudioCodecs")
+set(AUDIO_CODECS_REPO_TAG "" CACHE STRING "The tag/branch for AudioCodecs repository")
+
+if(NOT "${AUDIO_CODECS_REPO_TAG}" STREQUAL "")
+    set(AUDIO_CODECS_REPO_TAG_CODE GIT_TAG "${AUDIO_CODECS_REPO_TAG}")
+endif()
 
 option(WITH_SDL2_WASAPI "Enable WASAPI audio output support for Windows build of SDL2" ON)
 if(WIN32)
@@ -63,13 +69,15 @@ option(AUDIOCODECS_BUILD_FLUIDLITE "Build FluidLite at AudioCodecs" ON)
 option(AUDIOCODECS_BUILD_ADLMIDI "Build libADLMIDI at AudioCodecs" ON)
 option(AUDIOCODECS_BUILD_OPNMIDI "Build libOPNMIDI at AudioCodecs" ON)
 option(AUDIOCODECS_BUILD_EDMIDI "Build libEDMIDI at AudioCodecs" ON)
+option(AUDIOCODECS_BUILD_WAVPACK "Build WAVPACK at AudioCodecs" ON)
 
 option(AUDIO_CODECS_BUILD_LOCAL_SDL2_SHARED "Build shared version of SDL2 from local AudioCodecs' copy" ON)
 
 ExternalProject_Add(
     AudioCodecs
     PREFIX ${CMAKE_BINARY_DIR}/external/AudioCodecs
-    GIT_REPOSITORY https://github.com/WohlSoft/AudioCodecs.git
+    GIT_REPOSITORY ${AUDIO_CODECS_REPO_URL}
+    ${AUDIO_CODECS_REPO_TAG_CODE}
     CMAKE_ARGS
         "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
         "-DCMAKE_DEBUG_POSTFIX=${MIX_DEBUG_SUFFIX}"
@@ -96,6 +104,7 @@ ExternalProject_Add(
         "-DBUILD_ADLMIDI=${AUDIOCODECS_BUILD_ADLMIDI}"
         "-DBUILD_OPNMIDI=${AUDIOCODECS_BUILD_OPNMIDI}"
         "-DBUILD_EDMIDI=${AUDIOCODECS_BUILD_EDMIDI}"
+        "-DBUILD_WAVPACK=${AUDIOCODECS_BUILD_WAVPACK}"
 )
 
 if(WIN32) # For VB6-targeted build only

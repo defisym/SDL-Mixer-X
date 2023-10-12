@@ -46,8 +46,10 @@
 #include "music_midi_opn.h"
 #include "music_midi_edmidi.h"
 #include "music_ffmpeg.h"
+#include "music_pxtone.h"
 
 #include "utils.h"
+#include "mp3utils.h"
 
 /* Check to make sure we are building with a new enough SDL */
 #if SDL_COMPILEDVERSION < SDL_VERSIONNUM(2, 0, 7)
@@ -606,6 +608,9 @@ static Mix_MusicInterface *s_music_interfaces[] =
 #ifdef MUSIC_FFMPEG
     &Mix_MusicInterface_FFMPEG,
 #endif
+#ifdef MUSIC_PXTONE
+    &Mix_MusicInterface_PXTONE,
+#endif
 #ifdef MUSIC_MOD_XMP
     &Mix_MusicInterface_XMP,
 #endif
@@ -633,11 +638,12 @@ static Mix_MusicInterface *s_music_interfaces[] =
 #ifdef MUSIC_GME
     &Mix_MusicInterface_GME,
 #endif
+    NULL
 };
 
 int get_num_music_interfaces(void)
 {
-    return SDL_arraysize(s_music_interfaces);
+    return SDL_arraysize(s_music_interfaces) - 1;
 }
 
 Mix_MusicInterface *get_music_interface(int index)
@@ -969,9 +975,9 @@ void pause_async_music(int pause_on)
 /* Load the music interface libraries for a given music type */
 SDL_bool load_music_type(Mix_MusicType type)
 {
-    size_t i;
+    int i;
     int loaded = 0;
-    for (i = 0; i < SDL_arraysize(s_music_interfaces); ++i) {
+    for (i = 0; i < get_num_music_interfaces(); ++i) {
         Mix_MusicInterface *interface = s_music_interfaces[i];
         if (interface->type != type) {
             continue;
@@ -1113,7 +1119,7 @@ SDL_bool open_music_type(Mix_MusicType type)
 /* Open the music interfaces for a given music type, also select a MIDI library */
 SDL_bool open_music_type_ex(Mix_MusicType type, int midi_player)
 {
-    size_t i;
+    int i;
     int opened = 0;
     SDL_bool use_any_midi = SDL_FALSE;
     Mix_MusicAPI target_midi_api = MIX_MUSIC_NATIVEMIDI;
@@ -1130,7 +1136,7 @@ SDL_bool open_music_type_ex(Mix_MusicType type, int midi_player)
         }
     }
 
-    for (i = 0; i < SDL_arraysize(s_music_interfaces); ++i) {
+    for (i = 0; i < get_num_music_interfaces(); ++i) {
         Mix_MusicInterface *interface = s_music_interfaces[i];
         if (!interface->loaded) {
             continue;
@@ -1214,8 +1220,8 @@ void open_music(const SDL_AudioSpec *spec)
 /* Return SDL_TRUE if the music type is available */
 SDL_bool has_music(Mix_MusicType type)
 {
-    size_t i;
-    for (i = 0; i < SDL_arraysize(s_music_interfaces); ++i) {
+    int i;
+    for (i = 0; i < get_num_music_interfaces(); ++i) {
         Mix_MusicInterface *interface = s_music_interfaces[i];
         if (interface->type != type) {
             continue;
@@ -1289,7 +1295,6 @@ static Mix_MusicType xmi_compatible_midi_player()
 }
 #endif
 
-#ifdef MUSIC_MID_ADLMIDI
 static int detect_imf(SDL_RWops *in, Sint64 start)
 {
     size_t chunksize;
@@ -1371,28 +1376,29 @@ static int detect_ea_rsxx(SDL_RWops *in, Sint64 start, Uint8 magic_byte)
 
     return res;
 }
-#endif
 
-#if defined(MUSIC_MP3_MPG123) || defined(MUSIC_MP3_DRMP3)
-static int detect_mp3(Uint8 *magic, SDL_RWops *src, Sint64 start)
+static int detect_mp3(Uint8 *magic, SDL_RWops *src, Sint64 start, Sint64 offset)
 {
     const Uint32 null = 0;
-    Uint8 mp3_magic[9];
+    Uint8 mp3_magic[4];
     Sint64 end_file_pos = 0;
     const int max_search = 10240;
 
-    SDL_memcpy(mp3_magic, magic, 9);
+    SDL_memcpy(mp3_magic, magic, 4);
 
-    if (SDL_strncmp((char *)mp3_magic, "ID3", 3) == 0 ||
+    /* Attempt to quickly detect MP3 file if possible */
     /* see: https://bugzilla.libsdl.org/show_bug.cgi?id=5322 */
-       (magic[0] == 0xFF && (magic[1] & 0xE6) == 0xE2)) {
+    if ((magic[0] == 0xFF) && (magic[1] & 0xE6) == 0xE2) {
         SDL_RWseek(src, start, RW_SEEK_SET);
         return 1;
     }
 
+    /* If no success, try the deep scan of first 10 kilobytes of the file
+     * to detect the first valid MP3 frame */
+
     SDL_RWseek(src, 0, RW_SEEK_END);
     end_file_pos = SDL_RWtell(src);
-    SDL_RWseek(src, start, RW_SEEK_SET);
+    SDL_RWseek(src, start + offset, RW_SEEK_SET);
 
     /* If first 4 bytes are not zero */
     if (SDL_memcmp(mp3_magic, &null, 4) != 0) {
@@ -1400,34 +1406,32 @@ static int detect_mp3(Uint8 *magic, SDL_RWops *src, Sint64 start)
     }
 
 digMoreBytes:
-    {
-        /* Find the nearest 0xFF byte */
-        while ((SDL_RWread(src, mp3_magic, 1, 1) == 1) &&
-               (mp3_magic[0] != 0xFF) &&
-               (SDL_RWtell(src) < (start + max_search)) &&
-               (SDL_RWtell(src) < (end_file_pos - 1)) )
-        {}
+    /* Find the nearest 0xFF byte */
+    while ((SDL_RWread(src, mp3_magic, 1, 1) == 1) &&
+           (mp3_magic[0] != 0xFF) &&
+           (SDL_RWtell(src) < (start + offset + max_search)) &&
+           (SDL_RWtell(src) < (end_file_pos - 1)) )
+    {}
 
-        /* Can't read last 3 bytes of the frame header */
-        if (SDL_RWread(src, mp3_magic + 1, 1, 3) != 3) {
-            SDL_RWseek(src, start, RW_SEEK_SET);
-            return 0;
-        }
+    /* Can't read last 3 bytes of the frame header */
+    if (SDL_RWread(src, mp3_magic + 1, 1, 3) != 3) {
+        SDL_RWseek(src, start, RW_SEEK_SET);
+        return 0;
+    }
 
-        /* Go back to 3 bytes */
-        SDL_RWseek(src, -3, RW_SEEK_CUR);
+    /* Go back to 3 bytes */
+    SDL_RWseek(src, -3, RW_SEEK_CUR);
 
-        /* Got the end of search zone, however, found nothing */
-        if (SDL_RWtell(src) >= (start + max_search)) {
-            SDL_RWseek(src, start, RW_SEEK_SET);
-            return 0;
-        }
+    /* Got the end of search zone, however, found nothing */
+    if (SDL_RWtell(src) >= (start + offset + max_search)) {
+        SDL_RWseek(src, start, RW_SEEK_SET);
+        return 0;
+    }
 
-        /* Got the end of file, however, found nothing */
-        if (SDL_RWtell(src) >= (end_file_pos - 1)) {
-            SDL_RWseek(src, start, RW_SEEK_SET);
-            return 0;
-        }
+    /* Got the end of file, however, found nothing */
+    if (SDL_RWtell(src) >= (end_file_pos - 1)) {
+        SDL_RWseek(src, start, RW_SEEK_SET);
+        return 0;
     }
 
 readHeader:
@@ -1446,20 +1450,22 @@ readHeader:
     SDL_RWseek(src, start, RW_SEEK_SET);
     return 1;
 }
-#endif
 
 Mix_MusicType detect_music_type(SDL_RWops *src)
 {
-    Uint8 magic[25];
+    Uint8 magic[100];
     Sint64 start = SDL_RWtell(src);
+    Uint8 submagic[4];
+    long id3len = 0;
+    size_t readlen = 0;
 
-    SDL_memset(magic, 0, 25);
-    if (SDL_RWread(src, magic, 1, 24) != 24) {
-        Mix_SetError("Couldn't read first 24 bytes of audio data");
+    SDL_memset(magic, 0, 100);
+    if (SDL_RWread(src, magic, 1, 99) < 24) {
+        Mix_SetError("Couldn't read any first 24 bytes of audio data");
         return MUS_NONE;
     }
     SDL_RWseek(src, start, RW_SEEK_SET);
-    magic[24]       = '\0';
+    magic[99]       = '\0';
 
     /* Drop out some known but not supported file types (Archives, etc.) */
     if (SDL_memcmp(magic, "PK\x03\x04", 3) == 0) {
@@ -1498,14 +1504,20 @@ Mix_MusicType detect_music_type(SDL_RWops *src)
     if ((SDL_memcmp(magic, "RIFF", 4) == 0) && (SDL_memcmp(magic + 8, "RMID", 4) == 0)) {
         return MUS_MID;
     }
-#if defined(MUSIC_HAS_XMI_SUPPORT)
     if (SDL_memcmp(magic, "MUS\x1A", 4) == 0) {
+#if defined(MUSIC_HAS_XMI_SUPPORT)
         return xmi_compatible_midi_player();
+#else
+        return MUS_NONE;
+#endif
     }
     if ((SDL_memcmp(magic, "FORM", 4) == 0) && (SDL_memcmp(magic + 8, "XDIR", 4) == 0)) {
+#if defined(MUSIC_HAS_XMI_SUPPORT)
         return xmi_compatible_midi_player();
-    }
+#else
+        return MUS_NONE;
 #endif
+    }
 
     /* WAVE files have the magic four bytes "RIFF"
            AIFF files have the magic 12 bytes "FORM" XXXX "AIFF" */
@@ -1519,12 +1531,6 @@ Mix_MusicType detect_music_type(SDL_RWops *src)
     }
     if (SDL_memcmp(magic, "CTMF", 4) == 0) {
         return MUS_ADLMIDI;
-    }
-
-    if (SDL_memcmp(magic, "ID3", 3) == 0 ||
-    /* see: https://bugzilla.libsdl.org/show_bug.cgi?id=5322 */
-        (magic[0] == 0xFF && (magic[1] & 0xE6) == 0xE2)) {
-        return MUS_MP3;
     }
 
     /* GME Specific files */
@@ -1553,12 +1559,24 @@ Mix_MusicType detect_music_type(SDL_RWops *src)
     if (SDL_memcmp(magic, "\x1f\x8b", 2) == 0)
         return MUS_GME;
 
+    /* PXTone Collage files */
+    if (SDL_memcmp(magic, "PTTUNE", 6) == 0)
+        return MUS_PXTONE;
+    if (SDL_memcmp(magic, "PTCOLLAGE", 9) == 0)
+        return MUS_PXTONE;
+
     /* Detect some module files */
     if (SDL_memcmp(magic, "Extended Module", 15) == 0)
         return MUS_MOD;
     if (SDL_memcmp(magic, "ASYLUM Music Format V", 22) == 0)
         return MUS_MOD;
+    if (SDL_memcmp(magic, "DIGI Booster module", 19) == 0)
+        return MUS_MOD;
+    if (SDL_memcmp(magic, "OKTASONG", 8) == 0)
+        return MUS_MOD;
     if (SDL_memcmp(magic, "Extreme", 7) == 0)
+        return MUS_MOD;
+    if (SDL_memcmp(magic, "\xc1\x83\x2a\x9e", 4) == 0) /* UMX */
         return MUS_MOD;
     if (SDL_memcmp(magic, "IMPM", 4) == 0)
         return MUS_MOD;
@@ -1566,10 +1584,22 @@ Mix_MusicType detect_music_type(SDL_RWops *src)
         return MUS_MOD;
     if (SDL_memcmp(magic, "DDMF", 4) == 0)
         return MUS_MOD;
+    if (SDL_memcmp(magic, "DSM\x10", 4) == 0)
+        return MUS_MOD;
+    if (SDL_memcmp(magic, "DMML", 4) == 0)
+        return MUS_MOD;
+    if (SDL_memcmp(magic, "KRIS", 4) == 0)
+        return MUS_MOD;
+    if (SDL_memcmp(magic + 6, "Music   ", 8) == 0) /* ABK */
+        return MUS_MOD;
     /*  SMF files have the magic four bytes "RIFF" */
     if ((SDL_memcmp(magic, "RIFF", 4) == 0) &&
        (SDL_memcmp(magic + 8,  "DSMF", 4) == 0) &&
        (SDL_memcmp(magic + 12, "SONG", 4) == 0))
+        return MUS_MOD;
+    if ((SDL_memcmp(magic, "FORM", 4) == 0) && /* EMOD */
+       (SDL_memcmp(magic + 8,  "EMOD", 4) == 0) &&
+       (SDL_memcmp(magic + 12, "EMIC", 4) == 0))
         return MUS_MOD;
     if (SDL_memcmp(magic, "MAS_UTrack_V00", 14) == 0)
         return MUS_MOD;
@@ -1577,9 +1607,19 @@ Mix_MusicType detect_music_type(SDL_RWops *src)
         return MUS_MOD;
     if (SDL_memcmp(magic, "FAR=", 4) == 0)
         return MUS_MOD;
+    if (SDL_memcmp(magic, "\x00MGT", 4) == 0)
+        return MUS_MOD;
+    if (SDL_memcmp(magic, "\xbdMCS", 4) == 0)
+        return MUS_MOD;
     if (SDL_memcmp(magic, "MTM", 3) == 0)
         return MUS_MOD;
     if (SDL_memcmp(magic, "MMD", 3) == 0)
+        return MUS_MOD;
+    if (SDL_memcmp(magic, "MED\x2", 4) == 0)
+        return MUS_MOD;
+    if (SDL_memcmp(magic, "MED\x3", 4) == 0)
+        return MUS_MOD;
+    if (SDL_memcmp(magic, "MED\x2", 4) == 0)
         return MUS_MOD;
     if (SDL_memcmp(magic, "PSM\x20", 4) == 0)
         return MUS_MOD;
@@ -1589,9 +1629,17 @@ Mix_MusicType detect_music_type(SDL_RWops *src)
         return MUS_MOD;
     if (SDL_memcmp(magic, "OKTA", 4) == 0)
         return MUS_MOD;
+    if (SDL_memcmp(magic + 44, "PTMF", 4) == 0) /* PTM */
+        return MUS_MOD;
+    if (SDL_memcmp(magic + 44, "SCRM", 4) == 0) /* S3M */
+        return MUS_MOD;
     if (SDL_memcmp(magic, "JN", 2) == 0)
         return MUS_MOD;
     if (SDL_memcmp(magic, "if", 2) == 0)
+        return MUS_MOD;
+    if (SDL_memcmp(magic, "\x69\x66", 2) == 0) /* 669 */
+        return MUS_MOD;
+    if (SDL_memcmp(magic, "\x4a\x4e", 2) == 0) /* 669 */
         return MUS_MOD;
 
 #if defined(MUSIC_FFMPEG)
@@ -1607,14 +1655,27 @@ Mix_MusicType detect_music_type(SDL_RWops *src)
         return MUS_FFMPEG;
 #endif
 
-#if defined(MUSIC_MP3_MPG123) || defined(MUSIC_MP3_DRMP3)
-    /* Detect MP3 format [needs scanning of bigger part of the file] */
-    if (detect_mp3(magic, src, start)) {
+    if (SDL_memcmp(magic, "ID3", 3) == 0) {
+        id3len = get_id3v2_length(src);
+
+        /* Check if there is something not an MP3, however, also has ID3 tag */
+        if (id3len > 0) {
+            SDL_RWseek(src, id3len, RW_SEEK_CUR);
+            readlen = SDL_RWread(src, submagic, 1, 4);
+            SDL_RWseek(src, start, RW_SEEK_SET);
+
+            if (readlen == 4) {
+                if (SDL_memcmp(submagic, "fLaC", 4) == 0)
+                    return MUS_FLAC;
+            }
+        }
+    }
+
+    /* Detect MP3 format by frame header [needs scanning of bigger part of the file] */
+    if (detect_mp3(submagic, src, start, id3len)) {
         return MUS_MP3;
     }
-#endif
 
-#ifdef MUSIC_MID_ADLMIDI
     /* Detect id Software Music Format file */
     if (detect_imf(src, start)) {
         return MUS_ADLMIDI;
@@ -1627,9 +1688,8 @@ Mix_MusicType detect_music_type(SDL_RWops *src)
             return MUS_ADLMIDI;
         }
     }
-#endif
 
-      /* Reset position to zero! */
+    /* Reset position to zero! */
     SDL_RWseek(src, start, RW_SEEK_SET);
 
     /* Assume MOD format.
@@ -1693,7 +1753,7 @@ static int split_path_and_params(const char *path, char **file, char **args)
 /* Load a music file */
 Mix_Music * MIXCALLCC Mix_LoadMUS(const char *file)
 {
-    size_t i;
+    int i;
     void *context;
     char *ext;
     Mix_MusicType type;
@@ -1717,7 +1777,7 @@ Mix_Music * MIXCALLCC Mix_LoadMUS(const char *file)
     file = music_file;
     /* ========== Path arguments END ====== */
 
-    for (i = 0; i < SDL_arraysize(s_music_interfaces); ++i) {
+    for (i = 0; i < get_num_music_interfaces(); ++i) {
         Mix_MusicInterface *interface = s_music_interfaces[i];
         if (!interface->opened || (!interface->CreateFromFile && !interface->CreateFromFileEx)) {
             continue;
@@ -1758,6 +1818,7 @@ Mix_Music * MIXCALLCC Mix_LoadMUS(const char *file)
             }
             music->interface = interface;
             music->context = context;
+            music->music_volume = music_volume;
             p = get_last_dirsep(music_file);
             SDL_strlcpy(music->filename, (p != NULL)? p + 1 : music_file, 1024);
             SDL_free(music_file);
@@ -1779,27 +1840,12 @@ Mix_Music * MIXCALLCC Mix_LoadMUS(const char *file)
     ext = SDL_strrchr(file, '.');
     if (ext) {
         ++ext; /* skip the dot in the extension */
-        if (SDL_strcasecmp(ext, "669") == 0 ||
-            SDL_strcasecmp(ext, "AMF") == 0 ||
-            SDL_strcasecmp(ext, "AMS") == 0 ||
-            SDL_strcasecmp(ext, "DBM") == 0 ||
-            SDL_strcasecmp(ext, "DSM") == 0 ||
-            SDL_strcasecmp(ext, "FAR") == 0 ||
-            SDL_strcasecmp(ext, "IT") == 0 ||
-            SDL_strcasecmp(ext, "MED") == 0 ||
-            SDL_strcasecmp(ext, "MDL") == 0 ||
+        if (SDL_strcasecmp(ext, "AMS") == 0 ||
             SDL_strcasecmp(ext, "MOD") == 0 ||
             SDL_strcasecmp(ext, "MOL") == 0 ||
-            SDL_strcasecmp(ext, "MTM") == 0 ||
             SDL_strcasecmp(ext, "NST") == 0 ||
-            SDL_strcasecmp(ext, "OKT") == 0 ||
-            SDL_strcasecmp(ext, "PTM") == 0 ||
-            SDL_strcasecmp(ext, "S3M") == 0 ||
             SDL_strcasecmp(ext, "STM") == 0 ||
-            SDL_strcasecmp(ext, "ULT") == 0 ||
-            SDL_strcasecmp(ext, "UMX") == 0 ||
-            SDL_strcasecmp(ext, "WOW") == 0 ||
-            SDL_strcasecmp(ext, "XM") == 0) {
+            SDL_strcasecmp(ext, "WOW") == 0) {
             type = MUS_MOD;
         }
         else if (SDL_strcasecmp(ext, "MP4") == 0 ||
@@ -1855,7 +1901,7 @@ Mix_Music * MIXCALLCC Mix_LoadMUSType_RW(SDL_RWops *src, Mix_MusicType type, int
 
 Mix_Music * MIXCALLCC Mix_LoadMUSType_RW_ARG(SDL_RWops *src, Mix_MusicType type, int freesrc, const char *args)
 {
-    size_t i;
+    int i;
     void *context;
     Sint64 start;
     int midi_player = midiplayer_current;
@@ -1894,7 +1940,7 @@ Mix_Music * MIXCALLCC Mix_LoadMUSType_RW_ARG(SDL_RWops *src, Mix_MusicType type,
         if (midi_player == MIDI_ANY) {
             use_any_midi = SDL_TRUE;
         }
-        for (i = 0; i < SDL_arraysize(s_music_interfaces); ++i) {
+        for (i = 0; i < get_num_music_interfaces(); ++i) {
             Mix_MusicInterface *interface = s_music_interfaces[i];
             if (!interface->opened || type != interface->type ||
                 (!interface->CreateFromRW && !interface->CreateFromRWex)) {
@@ -3088,7 +3134,7 @@ int MIXCALLCC Mix_PausedMusic(void)
     return (music_active == SDL_FALSE);
 }
 
-int Mix_StartTrack(Mix_Music *music, int track)
+int MIXCALLCC Mix_StartTrack(Mix_Music *music, int track)
 {
     int result;
 
@@ -3106,7 +3152,7 @@ int Mix_StartTrack(Mix_Music *music, int track)
     return result;
 }
 
-int Mix_GetNumTracks(Mix_Music *music)
+int MIXCALLCC Mix_GetNumTracks(Mix_Music *music)
 {
     int result;
 
@@ -3189,12 +3235,12 @@ int MIXCALLCC Mix_GetSynchroValue(void)
 /* Uninitialize the music interfaces */
 void close_music(void)
 {
-    size_t i;
+    int i;
 
     Mix_HaltMusicStream(music_playing);
     _Mix_MultiMusic_HaltAll();
 
-    for (i = 0; i < SDL_arraysize(s_music_interfaces); ++i) {
+    for (i = 0; i < get_num_music_interfaces(); ++i) {
         Mix_MusicInterface *interface = s_music_interfaces[i];
         if (!interface || !interface->opened) {
             continue;
@@ -3224,11 +3270,11 @@ void close_music(void)
 /* Unload the music interface libraries */
 void unload_music(void)
 {
-    size_t i;
+    int i;
 
     _Mix_MultiMusic_CloseAndFree();
 
-    for (i = 0; i < SDL_arraysize(s_music_interfaces); ++i) {
+    for (i = 0; i < get_num_music_interfaces(); ++i) {
         Mix_MusicInterface *interface = s_music_interfaces[i];
         if (!interface || !interface->loaded) {
             continue;
