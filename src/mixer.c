@@ -1,6 +1,6 @@
 /*
   SDL_mixer:  An audio mixer library based on the SDL library
-  Copyright (C) 1997-2023 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2024 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -1100,6 +1100,8 @@ void MIXCALLCC Mix_ChannelFinished(void (SDLCALL *channel_finished)(int channel)
  */
 int MIXCALLCC Mix_ReserveChannels(int num)
 {
+    if (num < 0)
+        num = 0;
     if (num > num_channels)
         num = num_channels;
     reserved_channels = num;

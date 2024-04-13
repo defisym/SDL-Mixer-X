@@ -1,6 +1,6 @@
 /*
   SDL_mixer:  An audio mixer library based on the SDL library
-  Copyright (C) 1997-2023 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2024 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -31,6 +31,10 @@
 
 #include <fluidsynth.h>
 
+#ifdef USE_CUSTOM_AUDIO_STREAM
+#   include "stream_custom.h"
+#endif
+
 
 typedef struct {
     int loaded;
@@ -40,8 +44,6 @@ typedef struct {
     void (*delete_fluid_player)(fluid_player_t*);
     void (*delete_fluid_synth)(fluid_synth_t*);
     int (*fluid_player_seek)(fluid_player_t*, int);
-    int (*fluid_player_get_total_ticks)(fluid_player_t*);
-    int (*fluid_player_get_current_tick)(fluid_player_t*);
 #else
     int (*delete_fluid_player)(fluid_player_t*);
     int (*delete_fluid_synth)(fluid_synth_t*);
@@ -89,8 +91,6 @@ static int FLUIDSYNTH_Load()
         FUNCTION_LOADER(delete_fluid_player, void (*)(fluid_player_t*))
         FUNCTION_LOADER(delete_fluid_synth, void (*)(fluid_synth_t*))
         FUNCTION_LOADER(fluid_player_seek, int (*)(fluid_player_t*, int))
-        FUNCTION_LOADER(fluid_player_get_total_ticks, int (*)(fluid_player_t*))
-        FUNCTION_LOADER(fluid_player_get_current_tick, int (*)(fluid_player_t*))
 #else
         FUNCTION_LOADER(delete_fluid_player, int (*)(fluid_player_t*))
         FUNCTION_LOADER(delete_fluid_synth, int (*)(fluid_synth_t*))
@@ -141,6 +141,7 @@ typedef struct {
     void *buffer;
     int buffer_size;
     int volume;
+    SDL_bool is_paused;
 } FLUIDSYNTH_Music;
 
 static void FLUIDSYNTH_Delete(void *context);
@@ -284,6 +285,7 @@ static int FLUIDSYNTH_Play(void *context, int play_count)
     fluidsynth.fluid_player_seek(music->player, 0);
 #endif
     fluidsynth.fluid_player_play(music->player);
+    music->is_paused = SDL_FALSE;
     return 0;
 }
 
@@ -291,12 +293,13 @@ static void FLUIDSYNTH_Resume(void *context)
 {
     FLUIDSYNTH_Music *music = (FLUIDSYNTH_Music*)context;
     fluidsynth.fluid_player_play(music->player);
+    music->is_paused = SDL_FALSE;
 }
 
 static SDL_bool FLUIDSYNTH_IsPlaying(void *context)
 {
     FLUIDSYNTH_Music *music = (FLUIDSYNTH_Music *)context;
-    return fluidsynth.fluid_player_get_status(music->player) == FLUID_PLAYER_PLAYING ? SDL_TRUE : SDL_FALSE;
+    return music->is_paused || fluidsynth.fluid_player_get_status(music->player) == FLUID_PLAYER_PLAYING ? SDL_TRUE : SDL_FALSE;
 }
 
 static int FLUIDSYNTH_GetSome(void *context, void *data, int bytes, SDL_bool *done)
@@ -332,12 +335,14 @@ static void FLUIDSYNTH_Stop(void *context)
 #if (FLUIDSYNTH_VERSION_MAJOR >= 2)
     fluidsynth.fluid_player_seek(music->player, 0);
 #endif
+    music->is_paused = SDL_FALSE;
 }
 
 static void FLUIDSYNTH_Pause(void *context)
 {
     FLUIDSYNTH_Music *music = (FLUIDSYNTH_Music*)context;
     fluidsynth.fluid_player_stop(music->player);
+    music->is_paused = SDL_TRUE;
 }
 
 static void FLUIDSYNTH_Delete(void *context)
@@ -362,27 +367,6 @@ static void FLUIDSYNTH_Delete(void *context)
     SDL_free(music);
 }
 
-#if (FLUIDSYNTH_VERSION_MAJOR >= 2)
-static int FLUIDSYNTH_Seek(void *context, double position)
-{
-    FLUIDSYNTH_Music *music = (FLUIDSYNTH_Music*)context;
-    fluidsynth.fluid_player_seek(music->player, (int)(position * 1000));
-    return 0;
-}
-
-static double FLUIDSYNTH_Tell(void *context)
-{
-    FLUIDSYNTH_Music *music = (FLUIDSYNTH_Music*)context;
-    return fluidsynth.fluid_player_get_current_tick(music->player) / 1000.0;
-}
-
-static double FLUIDSYNTH_Duration(void* context)
-{
-    FLUIDSYNTH_Music *music = (FLUIDSYNTH_Music*)context;
-    return fluidsynth.fluid_player_get_total_ticks(music->player) / 1000.0;
-}
-#endif
-
 Mix_MusicInterface Mix_MusicInterface_FLUIDSYNTH =
 {
     "FLUIDSYNTH",
@@ -403,15 +387,9 @@ Mix_MusicInterface Mix_MusicInterface_FLUIDSYNTH =
     FLUIDSYNTH_IsPlaying,
     FLUIDSYNTH_GetAudio,
     NULL,   /* Jump */
-#if (FLUIDSYNTH_VERSION_MAJOR >= 2)
-    FLUIDSYNTH_Seek,
-    FLUIDSYNTH_Tell,
-    FLUIDSYNTH_Duration,
-#else
     NULL,   /* Seek */
     NULL,   /* Tell */
     NULL,   /* Duration */
-#endif
     NULL,   /* SetTempo [MIXER-X] */
     NULL,   /* GetTempo [MIXER-X] */
     NULL,   /* SetSpeed [MIXER-X] */
