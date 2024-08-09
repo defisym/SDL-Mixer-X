@@ -240,7 +240,7 @@ static void _Mix_MultiMusic_ResumeAll(void)
 
 typedef struct _Eff_positionargs position_args;
 
-struct _Mix_Music {
+struct Mix_Music {
     Mix_MusicInterface *interface;
     void *context;
 
@@ -2053,24 +2053,49 @@ Mix_Music * MIXCALLCC Mix_LoadMUSType_RW_ARG(SDL_RWops *src, Mix_MusicType type,
 /* Free a music chunk previously loaded */
 void MIXCALLCC Mix_FreeMusic(Mix_Music *music)
 {
+    SDL_bool do_hook = SDL_TRUE;
+    int is_multimusic;
+
     if (music) {
         /* Stop the music if it's currently playing */
         Mix_LockAudio();
 
-        if (music == music_playing || music->is_multimusic) {
+        is_multimusic = music->is_multimusic;
+
+        if (music == music_playing || is_multimusic) {
             /* Wait for any fade out to finish */
-            while ((music_active || music->is_multimusic) && music->fading == MIX_FADING_OUT) {
+            while ((music_active || is_multimusic) && music->fading == MIX_FADING_OUT) {
+                if (do_hook) {
+                    /* Don't call the hook as it will be already called in
+                       the music_mix_stream(), otherwise, it will be called twice. */
+                    do_hook = SDL_FALSE;
+                }
                 Mix_UnlockAudio();
                 SDL_Delay(100);
                 Mix_LockAudio();
             }
 
-            if (music->is_multimusic) {
+            if (is_multimusic) {
+                _Mix_MultiMusic_Remove(music);
                 music_internal_halt(music);
             }
 
             if (music == music_playing) {
                 music_internal_halt(music_playing);
+            }
+
+            if (do_hook) {
+                if (music->music_finished_hook) {
+                    music->music_finished_hook(music, music->music_finished_hook_user_data);
+                }
+
+                if (is_multimusic) {
+                    if (music_finished_hook_mm) {
+                        music_finished_hook_mm();
+                    }
+                } else if (music_finished_hook) {
+                    music_finished_hook();
+                }
             }
         }
         Mix_UnlockAudio();
@@ -3000,7 +3025,8 @@ int MIXCALLCC Mix_HaltMusicStream(Mix_Music *music)
             if (music_finished_hook_mm) {
                 music_finished_hook_mm();
             }
-            music->free_on_stop = 0; /* Unset this flag as it makes no effect and will make the confusion in the future */
+            music->free_on_stop = 0; /* Unset this flag as it makes no effect
+                                        and will make the confusion in the future */
         } else {
             if (music_finished_hook) {
                 music_finished_hook();
